@@ -1,15 +1,27 @@
 import codecs
-from typing import BinaryIO, TextIO, Union, cast, Tuple, Optional
+from typing import (
+    BinaryIO,
+    Iterable,
+    NamedTuple,
+    TextIO,
+    TypeVar,
+    Union,
+    cast,
+    Tuple,
+    Optional,
+)
 import codecs
 
 import io
-
-import encodings
+import string
 
 # CSS Syntax Module Level 3
 # Ref: https://www.w3.org/TR/css-syntax-3/
 
 import logging
+from unittest.loader import TestLoader
+from itertools import tee, takewhile
+from dataclasses import dataclass
 
 logger = logging.getLogger()
 
@@ -18,6 +30,13 @@ logger = logging.getLogger()
 
 class ParseError(Exception):
     pass
+
+
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return zip(a, b)
 
 
 def detect_bom(buffer: io.BufferedReader) -> Optional[codecs.CodecInfo]:
@@ -70,10 +89,10 @@ def detect_charset(sample: bytes) -> Optional[codecs.CodecInfo]:
 
 
 def decode(
-    stream: Union[BinaryIO, io.RawIOBase],
+    stream: Union[TextIO, BinaryIO, io.RawIOBase],
     protocol_encoding=None,
     environment_encoding=None,
-) -> Tuple[codecs.StreamReader, codecs.CodecInfo]:
+) -> TextIO:
     """
     Try to detect encoding in the following order:
     1. BOM marker
@@ -117,4 +136,12 @@ def decode(
         # 5. Default to UTF-8
         codec_info = codecs.lookup("utf-8")
 
-    return codec_info.streamreader(buffered), codec_info
+    # Decoding and Preprocessing
+    # Errors during decoding will be replaced by the U+FFFD REPLACEMENT CHARACTER (�)
+    #
+    # Wrapping the stream in TextIOWrapper will ensure the line endings will be normalized
+    # to single U+000A LINE FEED (LF) code point
+    # Ref: https://www.w3.org/TR/css-syntax-3/#input-preprocessing
+    return io.TextIOWrapper(buffered, encoding=codec_info.name, errors="replace")
+
+

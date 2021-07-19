@@ -92,7 +92,7 @@ class StylesheetBytesTestCase(
 
         expected_ast, expected_encoding = expectation
 
-        stream, encoding = decode(
+        stream = decode(
             io.BytesIO(css_bytes),
             protocol_encoding=protocol_encoding,
             environment_encoding=environment_encoding,
@@ -100,7 +100,7 @@ class StylesheetBytesTestCase(
 
         # Encoding matches with expectation
         self.assertEqual(
-            codecs.lookup(expected_encoding),
-            encoding,
-            f"Detected encoding {encoding.name} instead of {expected_encoding}",
+            codecs.lookup(expected_encoding).name,
+            codecs.lookup(stream.encoding).name,
+            f"Detected encoding {stream.encoding} instead of {expected_encoding}",
         )

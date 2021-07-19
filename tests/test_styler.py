@@ -1,7 +1,7 @@
 import unittest
 
 import io
-from styler import decode
+import styler
 
 
 class DecoderTestCase(unittest.TestCase):
@@ -9,5 +9,5 @@ class DecoderTestCase(unittest.TestCase):
         stream = io.BytesIO(
             '\u00EF\u00BB\u00BF@charset "ISO-8859-5"; @\u00C3\u00A9'.encode("latin1")
         )
-        decoded, encoding = decode(stream)
+        decoded = styler.decode(stream)
         self.assertEqual('@charset "ISO-8859-5"; @é', decoded.read())
