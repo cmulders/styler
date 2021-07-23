@@ -13,6 +13,11 @@ class DecoderTestCase(unittest.TestCase):
         decoded = styler.decode(stream)
         self.assertEqual('@charset "ISO-8859-5"; @é', decoded.read())
 
+    def test_text_io(self):
+        stream = io.StringIO('@charset "ISO-8859-5"; @é')
+        decoded = styler.decode(stream)
+        self.assertEqual('@charset "ISO-8859-5"; @é', decoded.read())
+
 
 class TokenizerTestCase(unittest.TestCase):
     def assertTokenEqual(self, css, token):
@@ -229,3 +234,150 @@ class TokenizerTestCase(unittest.TestCase):
     def test_at_keyword(self):
         self.assertTokenEqual("@media", styler.AtKeyword(0, "media"))
         self.assertTokenEqual("@--some", styler.AtKeyword(0, "--some"))
+
+
+class DecoderToTokensTestCase(unittest.TestCase):
+    def test_bootstrap_snippet(self):
+        stream = io.StringIO(
+            """
+/*!
+ * Bootstrap Reboot v5.0.2
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #212529;
+  background-color: #fff;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+}"""
+        )
+        decoded = styler.decode(stream)
+        tokens = list(styler.Tokenizer.from_reader(decoded))
+        no_whitespace = [t for t in tokens if not isinstance(t, styler.Whitespace)]
+
+        expected = [
+            styler.Comment(1, "!\n * Bootstrap Reboot v5.0.2\n "),
+            styler.Delim(36, "*"),
+            styler.Comma(37),
+            styler.Delim(39, "*"),
+            styler.Colon(40),
+            styler.Colon(41),
+            styler.Ident(42, "before"),
+            styler.Comma(48),
+            styler.Delim(50, "*"),
+            styler.Colon(51),
+            styler.Colon(52),
+            styler.Ident(53, "after"),
+            styler.OpenCurlyBracket(59),
+            styler.Ident(63, "box-sizing"),
+            styler.Colon(73),
+            styler.Ident(75, "border-box"),
+            styler.Semicolon(85),
+            styler.CloseCurlyBracket(87),
+            styler.AtKeyword(90, "media"),
+            styler.OpenParenthesis(97),
+            styler.Ident(98, "prefers-reduced-motion"),
+            styler.Colon(120),
+            styler.Ident(122, "no-preference"),
+            styler.CloseParenthesis(135),
+            styler.OpenCurlyBracket(137),
+            styler.Colon(141),
+            styler.Ident(142, "root"),
+            styler.OpenCurlyBracket(147),
+            styler.Ident(153, "scroll-behavior"),
+            styler.Colon(168),
+            styler.Ident(170, "smooth"),
+            styler.Semicolon(176),
+            styler.CloseCurlyBracket(180),
+            styler.CloseCurlyBracket(182),
+            styler.Ident(185, "body"),
+            styler.OpenCurlyBracket(190),
+            styler.Ident(194, "margin"),
+            styler.Colon(200),
+            styler.Number(202, 0, styler.NumericType.INTEGER),
+            styler.Semicolon(203),
+            styler.Ident(207, "font-family"),
+            styler.Colon(218),
+            styler.Ident(220, "system-ui"),
+            styler.Comma(229),
+            styler.Ident(231, "-apple-system"),
+            styler.Comma(244),
+            styler.String(247, "Segoe UI"),
+            styler.Comma(256),
+            styler.Ident(258, "Roboto"),
+            styler.Comma(264),
+            styler.String(267, "Helvetica Neue"),
+            styler.Comma(282),
+            styler.Ident(284, "Arial"),
+            styler.Comma(289),
+            styler.String(292, "Noto Sans"),
+            styler.Comma(302),
+            styler.String(305, "Liberation Sans"),
+            styler.Comma(321),
+            styler.Ident(323, "sans-serif"),
+            styler.Comma(333),
+            styler.String(336, "Apple Color Emoji"),
+            styler.Comma(354),
+            styler.String(357, "Segoe UI Emoji"),
+            styler.Comma(372),
+            styler.String(375, "Segoe UI Symbol"),
+            styler.Comma(391),
+            styler.String(394, "Noto Color Emoji"),
+            styler.Semicolon(411),
+            styler.Ident(415, "font-size"),
+            styler.Colon(424),
+            styler.Dimension(426, 1, styler.NumericType.INTEGER, "rem"),
+            styler.Semicolon(430),
+            styler.Ident(434, "font-weight"),
+            styler.Colon(445),
+            styler.Number(447, 400, styler.NumericType.INTEGER),
+            styler.Semicolon(450),
+            styler.Ident(454, "line-height"),
+            styler.Colon(465),
+            styler.Number(467, 1.5, styler.NumericType.NUMBER),
+            styler.Semicolon(470),
+            styler.Ident(474, "color"),
+            styler.Colon(479),
+            styler.Hash(481, "212529", styler.HashType.UNRESTRICTED),
+            styler.Semicolon(488),
+            styler.Ident(492, "background-color"),
+            styler.Colon(508),
+            styler.Hash(510, "fff", styler.HashType.ID),
+            styler.Semicolon(514),
+            styler.Ident(518, "-webkit-text-size-adjust"),
+            styler.Colon(542),
+            styler.Percentage(544, 100),
+            styler.Semicolon(548),
+            styler.Ident(552, "-webkit-tap-highlight-color"),
+            styler.Colon(579),
+            styler.Function(581, "rgba"),
+            styler.Number(586, 0, styler.NumericType.INTEGER),
+            styler.Comma(587),
+            styler.Number(589, 0, styler.NumericType.INTEGER),
+            styler.Comma(590),
+            styler.Number(592, 0, styler.NumericType.INTEGER),
+            styler.Comma(593),
+            styler.Number(595, 0, styler.NumericType.INTEGER),
+            styler.CloseParenthesis(596),
+            styler.Semicolon(597),
+            styler.CloseCurlyBracket(599),
+            styler.EOF(600),
+        ]
+
+        self.assertEqual(no_whitespace, expected)
