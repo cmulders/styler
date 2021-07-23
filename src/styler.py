@@ -6,6 +6,7 @@ from typing import (
     BinaryIO,
     Callable,
     Iterable,
+    List,
     TextIO,
     TypeVar,
     Union,
@@ -42,8 +43,24 @@ def pairwise(iterable):
     return zip(a, b)
 
 
-def detect_bom(buffer: io.BufferedReader) -> Optional[codecs.CodecInfo]:
-    sample = buffer.peek(3)
+def peek_buffered(buffer: Union[io.BufferedReader, io.BufferedIOBase], size: int):
+    if not isinstance(buffer, io.BufferedReader):
+        assert buffer.seekable, "Need a seekable buffer"
+
+        peek = buffer.read(size)
+        # Rewind
+        buffer.seek(-size, io.SEEK_CUR)
+    else:
+        peek = buffer.peek(size)
+
+    return peek
+
+
+def detect_bom(
+    buffer: Union[io.BufferedReader, io.BufferedIOBase]
+) -> Optional[codecs.CodecInfo]:
+    sample = peek_buffered(buffer, 3)
+
     if sample.startswith(codecs.BOM_UTF8):
         # Use UTF-8-sig to skip the BOM during reading
         buffer.read(3)  # Advance 3 bytes
@@ -92,12 +109,14 @@ def detect_charset(sample: bytes) -> Optional[codecs.CodecInfo]:
 
 
 def decode(
-    stream: Union[TextIO, BinaryIO, io.RawIOBase],
+    stream: Union[io.RawIOBase, io.BufferedIOBase, io.TextIOBase],
     protocol_encoding=None,
     environment_encoding=None,
-) -> TextIO:
-    """
-    Try to detect encoding in the following order:
+) -> io.TextIOBase:
+    """Decodes a stream
+    If the stream is a TextIOBase, it is assumed to be decoded, and returned unchanged.
+
+    For byte streams the encoding is detected in the following order:
     1. BOM marker
     2. Protocol encoding
     3. @charset rule
@@ -106,7 +125,14 @@ def decode(
 
     Ref: https://www.w3.org/TR/css-syntax-3/#input-byte-stream
     """
-    buffered = io.BufferedReader(cast(io.RawIOBase, stream))
+    if isinstance(stream, io.TextIOBase):
+        return stream
+
+    buffered: Union[io.BufferedReader, io.BufferedIOBase]
+    if isinstance(stream, io.RawIOBase):
+        buffered = io.BufferedReader(stream)
+    else:
+        buffered = stream
 
     # 1. BOM marker
     codec_info = detect_bom(buffered)
@@ -123,7 +149,8 @@ def decode(
 
     if not codec_info:
         # 3. @charset rule
-        codec_info = detect_charset(buffered.peek(1024))
+        sample = peek_buffered(buffered, 1024)
+        codec_info = detect_charset(sample)
 
     if not codec_info and environment_encoding:
         # 4. Environment encoding
@@ -145,7 +172,9 @@ def decode(
     # Wrapping the stream in TextIOWrapper will ensure the line endings will be normalized
     # to single U+000A LINE FEED (LF) code point
     # Ref: https://www.w3.org/TR/css-syntax-3/#input-preprocessing
-    return io.TextIOWrapper(buffered, encoding=codec_info.name, errors="replace")
+    return io.TextIOWrapper(
+        cast(BinaryIO, buffered), encoding=codec_info.name, errors="replace"
+    )
 
 
 # Ref: https://www.w3.org/TR/css-syntax-3/#tokenization
@@ -303,10 +332,10 @@ class Tokenizer:
         self.content = content
         self.pos = 0
         self.exhausted = False
-        self.errors = []
+        self.errors: List[str] = []
 
     @classmethod
-    def from_reader(cls, reader: TextIO):
+    def from_reader(cls, reader: io.TextIOBase):
         return cls(reader.read())
 
     @property
@@ -463,10 +492,9 @@ class Tokenizer:
     def is_escape(cls, chars: str) -> bool:
         assert len(chars) >= 2
 
-        c1, c2 = chars[:2]
-        if c1 != "\\":
+        if chars[0] != "\\":
             return False
-        elif c2 == "\n":
+        elif chars[1] == "\n":
             return False
 
         return True
@@ -499,40 +527,33 @@ class Tokenizer:
             # We need at least 2 code points
             return False
 
-        elif self.remaining == 2:
-            c1, c2 = self.peek(2)
-            c3 = None
-        else:
-            c1, c2, c3 = self.peek(3)
+        c = self.peek(3)
 
-        if c1 in "+-":
-            if c2 in string.digits:
+        if c[0] in "+-":
+            if c[1] in string.digits:
                 return True
-            elif c2 == "." and c3 is not None:
-                return c3 in string.digits
+            elif c[1] == "." and len(c) == 3:
+                return c[2] in string.digits
 
             return False
-        elif c1 == ".":
-            return c2 in string.digits
+        elif c[0] == ".":
+            return c[1] in string.digits
 
-        return c1 in string.digits
+        return c[0] in string.digits
 
     def at_ident_start(self) -> bool:
         # Ref: https://www.w3.org/TR/css-syntax-3/#would-start-an-identifier
         if self.remaining < 2:
             return False
-        elif self.remaining == 2:
-            c1, c2 = self.peek(2)
-            c3 = None
-        else:
-            c1, c2, c3 = self.peek(3)
 
-        if c1 == "-":
-            c1, c2 = c2, c3  # Shift the code points left
+        c = self.peek(3)
 
-        if self.is_name_start(c1) or c1 == "-":
+        if c[0] == "-":
+            c = c[1:]  # Shift the code points left
+
+        if self.is_name_start(c[0]) or c[0] == "-":
             return True
-        elif c2 is not None and self.is_escape(c1 + c2):
+        elif len(c) >= 2 is not None and self.is_escape(c[:2]):
             return True
         else:
             return False
