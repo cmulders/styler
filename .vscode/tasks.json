@@ -1,0 +1,55 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Coverage Run",
+            "type": "process",
+            "command": "${config:python.pythonPath}",
+            "args": [
+                "-m",
+                "coverage",
+                "run",
+                "-m",
+                "unittest",
+                "discover",
+                "tests"
+            ]
+        },
+        {
+            "label": "Coverage Report XML",
+            "type": "shell",
+            "command": "${config:python.pythonPath}",
+            "args": [
+                "-m",
+                "coverage",
+                "xml"
+            ],
+            "dependsOn": [
+                "Coverage Run"
+            ]
+        },
+        {
+            "label": "Coverage Report HTML",
+            "type": "shell",
+            "command": "${config:python.pythonPath}",
+            "args": [
+                "-m",
+                "coverage",
+                "html"
+            ],
+            "dependsOn": [
+                "Coverage Run"
+            ]
+        },
+        {
+            "label": "Coverage",
+            "dependsOn": [
+                "Coverage Report XML",
+                "Coverage Report HTML"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
