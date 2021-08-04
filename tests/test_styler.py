@@ -84,51 +84,51 @@ class TokenizerTestCase(unittest.TestCase):
 
     def test_empty(self):
         self.assertTokenEqual("", [])
-        self.assertTokenEqual("", [styler.EOF(0)])
+        self.assertTokenEqual("", [styler.EOF()])
 
     def test_comment(self):
-        self.assertTokenEqual("/* test */", styler.Comment(0, " test "))
-        self.assertTokenEqual("/**/", styler.Comment(0, ""))
-        self.assertTokenEqual("/* test /* nest */", styler.Comment(0, " test /* nest "))
+        self.assertTokenEqual("/* test */", styler.Comment(" test "))
+        self.assertTokenEqual("/**/", styler.Comment(""))
+        self.assertTokenEqual("/* test /* nest */", styler.Comment(" test /* nest "))
         self.assertTokenEqual(
             "/*test \n /*test",
-            styler.Comment(0, "test \n /*test"),
+            styler.Comment("test \n /*test"),
             parse_errors=["Comment did not close."],
         )
 
     def test_whitespace(self):
-        self.assertTokenEqual(" ", styler.Whitespace(0, " "))
+        self.assertTokenEqual(" ", styler.Whitespace(" "))
         self.assertTokenEqual(
             "/*   \t*/ /**/",
             [
-                styler.Comment(0, "   \t"),
-                styler.Whitespace(8, " "),
-                styler.Comment(9, ""),
-                styler.EOF(13),
+                styler.Comment("   \t"),
+                styler.Whitespace(" "),
+                styler.Comment(""),
+                styler.EOF(),
             ],
         )
 
     def test_string(self):
-        self.assertTokenEqual('"Test"', styler.String(1, "Test"))
-        self.assertTokenEqual("'Test'", styler.String(1, "Test"))
-        self.assertTokenEqual("'T\"est'", styler.String(1, 'T"est'))
-        self.assertTokenEqual('"T\'est"', styler.String(1, "T'est"))
+        self.assertTokenEqual('"Test"', styler.String("Test"))
+        self.assertTokenEqual("'Test'", styler.String("Test"))
+        self.assertTokenEqual("'T\"est'", styler.String('T"est'))
+        self.assertTokenEqual('"T\'est"', styler.String("T'est"))
         # Unterminated, gives warning
         self.assertTokenEqual(
             '"T',
-            styler.String(1, "T"),
+            styler.String("T"),
             ['String not ended with matching `"`.'],
         )
         self.assertTokenEqual(
             "'T",
-            styler.String(1, "T"),
+            styler.String("T"),
             ["String not ended with matching `'`."],
         )
 
     def test_badstring(self):
         self.assertTokenEqual(
             '"T\n',
-            [styler.BadString(1), styler.Whitespace(2, "\n")],
+            [styler.BadString(), styler.Whitespace("\n")],
             parse_errors=["String contains newline."],
         )
 
@@ -136,10 +136,10 @@ class TokenizerTestCase(unittest.TestCase):
         self.assertTokenEqual(
             "/**/{ }",
             [
-                styler.Comment(0, ""),
-                styler.OpenCurlyBracket(4),
-                styler.Whitespace(5, " "),
-                styler.CloseCurlyBracket(6),
+                styler.Comment(""),
+                styler.OpenCurlyBracket(),
+                styler.Whitespace(" "),
+                styler.CloseCurlyBracket(),
             ],
         )
 
@@ -147,9 +147,9 @@ class TokenizerTestCase(unittest.TestCase):
         self.assertTokenEqual(
             "[ ]",
             [
-                styler.OpenBracket(0),
-                styler.Whitespace(1, " "),
-                styler.CloseBracket(2),
+                styler.OpenBracket(),
+                styler.Whitespace(" "),
+                styler.CloseBracket(),
             ],
         )
 
@@ -157,126 +157,126 @@ class TokenizerTestCase(unittest.TestCase):
         self.assertTokenEqual(
             "( ) )",
             [
-                styler.OpenParenthesis(0),
-                styler.Whitespace(1, " "),
-                styler.CloseParenthesis(2),
-                styler.Whitespace(3, " "),
-                styler.CloseParenthesis(4),
+                styler.OpenParenthesis(),
+                styler.Whitespace(" "),
+                styler.CloseParenthesis(),
+                styler.Whitespace(" "),
+                styler.CloseParenthesis(),
             ],
         )
 
     def test_plus_not_a_number(self):
-        self.assertTokenEqual("+", [styler.Delim(0, "+")])
-        self.assertTokenEqual("+A", [styler.Delim(0, "+"), styler.Ident(1, "A")])
+        self.assertTokenEqual("+", [styler.Delim("+")])
+        self.assertTokenEqual("+A", [styler.Delim("+"), styler.Ident("A")])
 
     def test_dot_not_a_number(self):
-        self.assertTokenEqual(".", [styler.Delim(0, ".")])
-        self.assertTokenEqual(".A", [styler.Delim(0, "."), styler.Ident(1, "A")])
+        self.assertTokenEqual(".", [styler.Delim(".")])
+        self.assertTokenEqual(".A", [styler.Delim("."), styler.Ident("A")])
 
     def test_number_percentage(self):
-        self.assertTokenEqual("100%", styler.Percentage(0, 100))
-        self.assertTokenEqual("-100%", styler.Percentage(0, -100))
-        self.assertTokenEqual("15.5%", styler.Percentage(0, 15.5))
-        self.assertTokenEqual("-15.5%", styler.Percentage(0, -15.5))
-        self.assertTokenEqual("2e3%", styler.Percentage(0, 2e3))
-        self.assertTokenEqual("-2e3%", styler.Percentage(0, -2e3))
+        self.assertTokenEqual("100%", styler.Percentage(100))
+        self.assertTokenEqual("-100%", styler.Percentage(-100))
+        self.assertTokenEqual("15.5%", styler.Percentage(15.5))
+        self.assertTokenEqual("-15.5%", styler.Percentage(-15.5))
+        self.assertTokenEqual("2e3%", styler.Percentage(2e3))
+        self.assertTokenEqual("-2e3%", styler.Percentage(-2e3))
 
     def test_number_dimension(self):
         NUMBER = styler.NumericType.NUMBER
         INTEGER = styler.NumericType.INTEGER
-        self.assertTokenEqual("100em", styler.Dimension(0, 100, INTEGER, "em"))
-        self.assertTokenEqual("-100px", styler.Dimension(0, -100, INTEGER, "px"))
-        self.assertTokenEqual("15.5text", styler.Dimension(0, 15.5, NUMBER, "text"))
-        self.assertTokenEqual("-15.5pt", styler.Dimension(0, -15.5, NUMBER, "pt"))
-        self.assertTokenEqual("2e3em", styler.Dimension(0, 2e3, NUMBER, "em"))
-        self.assertTokenEqual("-2e3rem", styler.Dimension(0, -2e3, NUMBER, "rem"))
+        self.assertTokenEqual("100em", styler.Dimension(100, INTEGER, "em"))
+        self.assertTokenEqual("-100px", styler.Dimension(-100, INTEGER, "px"))
+        self.assertTokenEqual("15.5text", styler.Dimension(15.5, NUMBER, "text"))
+        self.assertTokenEqual("-15.5pt", styler.Dimension(-15.5, NUMBER, "pt"))
+        self.assertTokenEqual("2e3em", styler.Dimension(2e3, NUMBER, "em"))
+        self.assertTokenEqual("-2e3rem", styler.Dimension(-2e3, NUMBER, "rem"))
 
     def test_number_integer(self):
         INTEGER = styler.NumericType.INTEGER
-        self.assertTokenEqual("0", styler.Number(0, 0, INTEGER))
-        self.assertTokenEqual("1", styler.Number(0, 1, INTEGER))
-        self.assertTokenEqual("+1", styler.Number(0, 1, INTEGER))
-        self.assertTokenEqual("-1", styler.Number(0, -1, INTEGER))
+        self.assertTokenEqual("0", styler.Number(0, INTEGER))
+        self.assertTokenEqual("1", styler.Number(1, INTEGER))
+        self.assertTokenEqual("+1", styler.Number(1, INTEGER))
+        self.assertTokenEqual("-1", styler.Number(-1, INTEGER))
 
     def test_number_number(self):
         NUMBER = styler.NumericType.NUMBER
-        self.assertTokenEqual("+1.5", styler.Number(0, 1.5, NUMBER))
-        self.assertTokenEqual("-1.5", styler.Number(0, -1.5, NUMBER))
-        self.assertTokenEqual(".5", styler.Number(0, 0.5, NUMBER))
-        self.assertTokenEqual("-.5", styler.Number(0, -0.5, NUMBER))
+        self.assertTokenEqual("+1.5", styler.Number(1.5, NUMBER))
+        self.assertTokenEqual("-1.5", styler.Number(-1.5, NUMBER))
+        self.assertTokenEqual(".5", styler.Number(0.5, NUMBER))
+        self.assertTokenEqual("-.5", styler.Number(-0.5, NUMBER))
 
     def test_number_number_exp(self):
         NUMBER = styler.NumericType.NUMBER
-        self.assertTokenEqual("2e2", styler.Number(0, 2e2, NUMBER))
-        self.assertTokenEqual("-2e2", styler.Number(0, -2e2, NUMBER))
-        self.assertTokenEqual("2e-2", styler.Number(0, 2e-2, NUMBER))
-        self.assertTokenEqual("-2e-2", styler.Number(0, -2e-2, NUMBER))
-        self.assertTokenEqual("2.5e2", styler.Number(0, 2.5e2, NUMBER))
-        self.assertTokenEqual("-2.5e2", styler.Number(0, -2.5e2, NUMBER))
-        self.assertTokenEqual("2.5e-2", styler.Number(0, 2.5e-2, NUMBER))
-        self.assertTokenEqual("-2.5e-2", styler.Number(0, -2.5e-2, NUMBER))
+        self.assertTokenEqual("2e2", styler.Number(2e2, NUMBER))
+        self.assertTokenEqual("-2e2", styler.Number(-2e2, NUMBER))
+        self.assertTokenEqual("2e-2", styler.Number(2e-2, NUMBER))
+        self.assertTokenEqual("-2e-2", styler.Number(-2e-2, NUMBER))
+        self.assertTokenEqual("2.5e2", styler.Number(2.5e2, NUMBER))
+        self.assertTokenEqual("-2.5e2", styler.Number(-2.5e2, NUMBER))
+        self.assertTokenEqual("2.5e-2", styler.Number(2.5e-2, NUMBER))
+        self.assertTokenEqual("-2.5e-2", styler.Number(-2.5e-2, NUMBER))
 
     def test_hash_without_name(self):
-        self.assertTokenEqual("#", styler.Delim(0, "#"))
+        self.assertTokenEqual("#", styler.Delim("#"))
 
     def test_hash_id(self):
-        self.assertTokenEqual("#test", styler.Hash(0, "test", styler.HashType.ID))
-        self.assertTokenEqual("#--test", styler.Hash(0, "--test", styler.HashType.ID))
+        self.assertTokenEqual("#test", styler.Hash("test", styler.HashType.ID))
+        self.assertTokenEqual("#--test", styler.Hash("--test", styler.HashType.ID))
 
     def test_hash_unrestricted(self):
-        self.assertTokenEqual("#0red", styler.Hash(0, "0red"))
-        self.assertTokenEqual("#-0red", styler.Hash(0, "-0red"))
+        self.assertTokenEqual("#0red", styler.Hash("0red"))
+        self.assertTokenEqual("#-0red", styler.Hash("-0red"))
 
     def test_comma(self):
-        self.assertTokenEqual(",", styler.Comma(0))
+        self.assertTokenEqual(",", styler.Comma())
         self.assertTokenEqual(
             "#a,#",
             [
-                styler.Hash(0, "a", styler.HashType.ID),
-                styler.Comma(2),
-                styler.Delim(3, "#"),
+                styler.Hash("a", styler.HashType.ID),
+                styler.Comma(),
+                styler.Delim("#"),
             ],
         )
 
     def test_cdo(self):
-        self.assertTokenEqual("<!--", styler.CDO(0))
+        self.assertTokenEqual("<!--", styler.CDO())
 
     def test_cdc(self):
-        self.assertTokenEqual("-->", styler.CDC(0))
+        self.assertTokenEqual("-->", styler.CDC())
 
     def test_ident_url(self):
         self.assertTokenEqual(
             "url('')",
             [
-                styler.Function(0, "url"),
-                styler.String(5, ""),
-                styler.CloseParenthesis(6),
+                styler.Function("url"),
+                styler.String(""),
+                styler.CloseParenthesis(),
             ],
         )
 
     def test_minus_ident(self):
-        self.assertTokenEqual("-a", styler.Ident(0, "-a"))
-        self.assertTokenEqual("--a", styler.Ident(0, "--a"))
-        self.assertTokenEqual("--a-b", styler.Ident(0, "--a-b"))
+        self.assertTokenEqual("-a", styler.Ident("-a"))
+        self.assertTokenEqual("--a", styler.Ident("--a"))
+        self.assertTokenEqual("--a-b", styler.Ident("--a-b"))
 
     def test_escapes(self):
-        self.assertTokenEqual("-\\000394a", styler.Ident(0, "-\u0394a"))
-        self.assertTokenEqual('"\\000394a"', styler.String(1, "\u0394a"))
-        self.assertTokenEqual("\\", styler.Delim(0, "\\"), ["Invalid escape."])
-        self.assertTokenEqual("\\ ", styler.Ident(0, " "))
-        self.assertTokenEqual("\\Z", [styler.Ident(0, "Z")])
-        self.assertTokenEqual("\\0", styler.Ident(0, "\N{REPLACEMENT CHARACTER}"))
+        self.assertTokenEqual("-\\000394a", styler.Ident("-\u0394a"))
+        self.assertTokenEqual('"\\000394a"', styler.String("\u0394a"))
+        self.assertTokenEqual("\\", styler.Delim("\\"), ["Invalid escape."])
+        self.assertTokenEqual("\\ ", styler.Ident(" "))
+        self.assertTokenEqual("\\Z", [styler.Ident("Z")])
+        self.assertTokenEqual("\\0", styler.Ident("\N{REPLACEMENT CHARACTER}"))
 
     def test_function(self):
         self.assertTokenEqual(
             "func1('arg1', 'arg2')",
             [
-                styler.Function(0, "func1"),
-                styler.String(7, "arg1"),
-                styler.Comma(12),
-                styler.Whitespace(13, " "),
-                styler.String(15, "arg2"),
-                styler.CloseParenthesis(20),
+                styler.Function("func1"),
+                styler.String("arg1"),
+                styler.Comma(),
+                styler.Whitespace(" "),
+                styler.String("arg2"),
+                styler.CloseParenthesis(),
             ],
         )
 
@@ -284,76 +284,76 @@ class TokenizerTestCase(unittest.TestCase):
         self.assertTokenEqual(
             "url('arg1')",
             [
-                styler.Function(0, "url"),
-                styler.String(5, "arg1"),
-                styler.CloseParenthesis(10),
+                styler.Function("url"),
+                styler.String("arg1"),
+                styler.CloseParenthesis(),
             ],
         )
 
     def test_url(self):
-        self.assertTokenEqual("url()", styler.Url(0, ""))
+        self.assertTokenEqual("url()", styler.Url(""))
         self.assertTokenEqual(
-            "url(http", styler.Url(0, "http"), ["Unexpected EOF while parsing Url."]
+            "url(http", styler.Url("http"), ["Unexpected EOF while parsing Url."]
         )
         self.assertTokenEqual(
-            "url(http  ", styler.Url(0, "http"), ["Unexpected EOF while parsing Url."]
+            "url(http  ", styler.Url("http"), ["Unexpected EOF while parsing Url."]
         )
         self.assertTokenEqual(
             "url(https://www.w3.org/TR/css-syntax-3/#consume-url-token)",
-            styler.Url(0, "https://www.w3.org/TR/css-syntax-3/#consume-url-token"),
+            styler.Url("https://www.w3.org/TR/css-syntax-3/#consume-url-token"),
         )
         # Url should ignore whitespace
-        self.assertTokenEqual("url(  \t\n)", styler.Url(0, ""))
+        self.assertTokenEqual("url(  \t\n)", styler.Url(""))
         # Should handle escapes
-        self.assertTokenEqual(f"url(\\{ord('d'):x})", styler.Url(0, "d"))
-        self.assertTokenEqual(f"url(\\{ord('d'):x})", styler.Url(0, "d"))
-        self.assertTokenEqual("url( http:// )", styler.Url(0, "http://"))
-        self.assertTokenEqual("url( http:// \n)", styler.Url(0, "http://"))
+        self.assertTokenEqual(f"url(\\{ord('d'):x})", styler.Url("d"))
+        self.assertTokenEqual(f"url(\\{ord('d'):x})", styler.Url("d"))
+        self.assertTokenEqual("url( http:// )", styler.Url("http://"))
+        self.assertTokenEqual("url( http:// \n)", styler.Url("http://"))
 
     def test_bad_url(self):
         # Space is not allowed
-        self.assertTokenEqual("url( http // )", styler.BadUrl(0))
+        self.assertTokenEqual("url( http // )", styler.BadUrl())
 
         self.assertTokenEqual(
-            "url( http(// )", styler.BadUrl(0), ["Url contains invalid character: (."]
+            "url( http(// )", styler.BadUrl(), ["Url contains invalid character: (."]
         )
         self.assertTokenEqual(
-            'url( http"// )', styler.BadUrl(0), ['Url contains invalid character: ".']
+            'url( http"// )', styler.BadUrl(), ['Url contains invalid character: ".']
         )
         self.assertTokenEqual(
-            "url( http'// )", styler.BadUrl(0), ["Url contains invalid character: '."]
+            "url( http'// )", styler.BadUrl(), ["Url contains invalid character: '."]
         )
         self.assertTokenEqual(
-            "url( http(\a )", styler.BadUrl(0), ["Url contains invalid character: (."]
+            "url( http(\a )", styler.BadUrl(), ["Url contains invalid character: (."]
         )
         self.assertTokenEqual(
-            "url(\\", styler.BadUrl(0), ["Invalid escape while parsing Url"]
+            "url(\\", styler.BadUrl(), ["Invalid escape while parsing Url"]
         )
         self.assertTokenEqual(
-            "url(\\", styler.BadUrl(0), ["Invalid escape while parsing Url"]
+            "url(\\", styler.BadUrl(), ["Invalid escape while parsing Url"]
         )
 
     def test_colon(self):
-        self.assertTokenEqual(":", styler.Colon(0))
+        self.assertTokenEqual(":", styler.Colon())
 
     def test_semicolon(self):
-        self.assertTokenEqual(";", styler.Semicolon(0))
+        self.assertTokenEqual(";", styler.Semicolon())
 
     def test_declaration(self):
         self.assertTokenEqual(
             "border-width: 10px;",
             [
-                styler.Ident(0, "border-width"),
-                styler.Colon(12),
-                styler.Whitespace(13, " "),
-                styler.Dimension(14, 10, styler.NumericType.INTEGER, "px"),
-                styler.Semicolon(18),
+                styler.Ident("border-width"),
+                styler.Colon(),
+                styler.Whitespace(" "),
+                styler.Dimension(10, styler.NumericType.INTEGER, "px"),
+                styler.Semicolon(),
             ],
         )
 
     def test_at_keyword(self):
-        self.assertTokenEqual("@media", styler.AtKeyword(0, "media"))
-        self.assertTokenEqual("@--some", styler.AtKeyword(0, "--some"))
+        self.assertTokenEqual("@media", styler.AtKeyword("media"))
+        self.assertTokenEqual("@--some", styler.AtKeyword("--some"))
 
 
 class DecoderToTokensTestCase(unittest.TestCase):
@@ -395,111 +395,111 @@ class DecoderToTokensTestCase(unittest.TestCase):
             tok for tok in tokens if not isinstance(tok, styler.Whitespace)
         ]
         expected = [
-            styler.Delim(36, "*"),
-            styler.Comma(37),
-            styler.Delim(39, "*"),
-            styler.Colon(40),
-            styler.Colon(41),
-            styler.Ident(42, "before"),
-            styler.Comma(48),
-            styler.Delim(50, "*"),
-            styler.Colon(51),
-            styler.Colon(52),
-            styler.Ident(53, "after"),
-            styler.OpenCurlyBracket(59),
-            styler.Ident(63, "box-sizing"),
-            styler.Colon(73),
-            styler.Ident(75, "border-box"),
-            styler.Semicolon(85),
-            styler.CloseCurlyBracket(87),
-            styler.AtKeyword(90, "media"),
-            styler.OpenParenthesis(97),
-            styler.Ident(98, "prefers-reduced-motion"),
-            styler.Colon(120),
-            styler.Ident(122, "no-preference"),
-            styler.CloseParenthesis(135),
-            styler.OpenCurlyBracket(137),
-            styler.Colon(141),
-            styler.Ident(142, "root"),
-            styler.OpenCurlyBracket(147),
-            styler.Ident(153, "scroll-behavior"),
-            styler.Colon(168),
-            styler.Ident(170, "smooth"),
-            styler.Semicolon(176),
-            styler.CloseCurlyBracket(180),
-            styler.CloseCurlyBracket(182),
-            styler.Ident(185, "body"),
-            styler.OpenCurlyBracket(190),
-            styler.Ident(194, "margin"),
-            styler.Colon(200),
-            styler.Number(202, 0, styler.NumericType.INTEGER),
-            styler.Semicolon(203),
-            styler.Ident(207, "font-family"),
-            styler.Colon(218),
-            styler.Ident(220, "system-ui"),
-            styler.Comma(229),
-            styler.Ident(231, "-apple-system"),
-            styler.Comma(244),
-            styler.String(247, "Segoe UI"),
-            styler.Comma(256),
-            styler.Ident(258, "Roboto"),
-            styler.Comma(264),
-            styler.String(267, "Helvetica Neue"),
-            styler.Comma(282),
-            styler.Ident(284, "Arial"),
-            styler.Comma(289),
-            styler.String(292, "Noto Sans"),
-            styler.Comma(302),
-            styler.String(305, "Liberation Sans"),
-            styler.Comma(321),
-            styler.Ident(323, "sans-serif"),
-            styler.Comma(333),
-            styler.String(336, "Apple Color Emoji"),
-            styler.Comma(354),
-            styler.String(357, "Segoe UI Emoji"),
-            styler.Comma(372),
-            styler.String(375, "Segoe UI Symbol"),
-            styler.Comma(391),
-            styler.String(394, "Noto Color Emoji"),
-            styler.Semicolon(411),
-            styler.Ident(415, "font-size"),
-            styler.Colon(424),
-            styler.Dimension(426, 1, styler.NumericType.INTEGER, "rem"),
-            styler.Semicolon(430),
-            styler.Ident(434, "font-weight"),
-            styler.Colon(445),
-            styler.Number(447, 400, styler.NumericType.INTEGER),
-            styler.Semicolon(450),
-            styler.Ident(454, "line-height"),
-            styler.Colon(465),
-            styler.Number(467, 1.5, styler.NumericType.NUMBER),
-            styler.Semicolon(470),
-            styler.Ident(474, "color"),
-            styler.Colon(479),
-            styler.Hash(481, "212529", hash_type=styler.HashType.UNRESTRICTED),
-            styler.Semicolon(488),
-            styler.Ident(492, "background-color"),
-            styler.Colon(508),
-            styler.Hash(510, "fff", hash_type=styler.HashType.ID),
-            styler.Semicolon(514),
-            styler.Ident(518, "-webkit-text-size-adjust"),
-            styler.Colon(542),
-            styler.Percentage(544, 100),
-            styler.Semicolon(548),
-            styler.Ident(552, "-webkit-tap-highlight-color"),
-            styler.Colon(579),
-            styler.Function(581, "rgba"),
-            styler.Number(586, 0, styler.NumericType.INTEGER),
-            styler.Comma(587),
-            styler.Number(589, 0, styler.NumericType.INTEGER),
-            styler.Comma(590),
-            styler.Number(592, 0, styler.NumericType.INTEGER),
-            styler.Comma(593),
-            styler.Number(595, 0, styler.NumericType.INTEGER),
-            styler.CloseParenthesis(596),
-            styler.Semicolon(597),
-            styler.CloseCurlyBracket(599),
-            styler.EOF(600),
+            styler.Delim("*"),
+            styler.Comma(),
+            styler.Delim("*"),
+            styler.Colon(),
+            styler.Colon(),
+            styler.Ident("before"),
+            styler.Comma(),
+            styler.Delim("*"),
+            styler.Colon(),
+            styler.Colon(),
+            styler.Ident("after"),
+            styler.OpenCurlyBracket(),
+            styler.Ident("box-sizing"),
+            styler.Colon(),
+            styler.Ident("border-box"),
+            styler.Semicolon(),
+            styler.CloseCurlyBracket(),
+            styler.AtKeyword("media"),
+            styler.OpenParenthesis(),
+            styler.Ident("prefers-reduced-motion"),
+            styler.Colon(),
+            styler.Ident("no-preference"),
+            styler.CloseParenthesis(),
+            styler.OpenCurlyBracket(),
+            styler.Colon(),
+            styler.Ident("root"),
+            styler.OpenCurlyBracket(),
+            styler.Ident("scroll-behavior"),
+            styler.Colon(),
+            styler.Ident("smooth"),
+            styler.Semicolon(),
+            styler.CloseCurlyBracket(),
+            styler.CloseCurlyBracket(),
+            styler.Ident("body"),
+            styler.OpenCurlyBracket(),
+            styler.Ident("margin"),
+            styler.Colon(),
+            styler.Number(0, styler.NumericType.INTEGER),
+            styler.Semicolon(),
+            styler.Ident("font-family"),
+            styler.Colon(),
+            styler.Ident("system-ui"),
+            styler.Comma(),
+            styler.Ident("-apple-system"),
+            styler.Comma(),
+            styler.String("Segoe UI"),
+            styler.Comma(),
+            styler.Ident("Roboto"),
+            styler.Comma(),
+            styler.String("Helvetica Neue"),
+            styler.Comma(),
+            styler.Ident("Arial"),
+            styler.Comma(),
+            styler.String("Noto Sans"),
+            styler.Comma(),
+            styler.String("Liberation Sans"),
+            styler.Comma(),
+            styler.Ident("sans-serif"),
+            styler.Comma(),
+            styler.String("Apple Color Emoji"),
+            styler.Comma(),
+            styler.String("Segoe UI Emoji"),
+            styler.Comma(),
+            styler.String("Segoe UI Symbol"),
+            styler.Comma(),
+            styler.String("Noto Color Emoji"),
+            styler.Semicolon(),
+            styler.Ident("font-size"),
+            styler.Colon(),
+            styler.Dimension(1, styler.NumericType.INTEGER, "rem"),
+            styler.Semicolon(),
+            styler.Ident("font-weight"),
+            styler.Colon(),
+            styler.Number(400, styler.NumericType.INTEGER),
+            styler.Semicolon(),
+            styler.Ident("line-height"),
+            styler.Colon(),
+            styler.Number(1.5, styler.NumericType.NUMBER),
+            styler.Semicolon(),
+            styler.Ident("color"),
+            styler.Colon(),
+            styler.Hash("212529", hash_type=styler.HashType.UNRESTRICTED),
+            styler.Semicolon(),
+            styler.Ident("background-color"),
+            styler.Colon(),
+            styler.Hash("fff", hash_type=styler.HashType.ID),
+            styler.Semicolon(),
+            styler.Ident("-webkit-text-size-adjust"),
+            styler.Colon(),
+            styler.Percentage(100),
+            styler.Semicolon(),
+            styler.Ident("-webkit-tap-highlight-color"),
+            styler.Colon(),
+            styler.Function("rgba"),
+            styler.Number(0, styler.NumericType.INTEGER),
+            styler.Comma(),
+            styler.Number(0, styler.NumericType.INTEGER),
+            styler.Comma(),
+            styler.Number(0, styler.NumericType.INTEGER),
+            styler.Comma(),
+            styler.Number(0, styler.NumericType.INTEGER),
+            styler.CloseParenthesis(),
+            styler.Semicolon(),
+            styler.CloseCurlyBracket(),
+            styler.EOF(),
         ]
 
         self.assertEqual(without_whitespace, expected)
@@ -629,7 +629,7 @@ class ParserTestCase(unittest.TestCase):
         self.assertIsInstance(rule, styler.AtRuleAst)
         assert isinstance(rule, styler.AtRuleAst)
         self.assertEqual(rule.name, "media")
-        self.assertSequenceEqual(rule.prelude, [styler.Ident(7, "screen")])
+        self.assertSequenceEqual(rule.prelude, [styler.Ident("screen")])
         self.assertEqual(rule.block, None)
 
     def test_parse_rule_at_rule(self):
@@ -650,11 +650,11 @@ class ParserTestCase(unittest.TestCase):
             rule.prelude,
             [
                 styler.BlockAst(
-                    styler.OpenParenthesis(7),
+                    styler.OpenParenthesis(),
                     [
-                        styler.Ident(8, "prefers-reduced-motion"),
-                        styler.Colon(30),
-                        styler.Ident(32, "no-preference"),
+                        styler.Ident("prefers-reduced-motion"),
+                        styler.Colon(),
+                        styler.Ident("no-preference"),
                     ],
                 )
             ],
@@ -662,15 +662,15 @@ class ParserTestCase(unittest.TestCase):
         self.assertSequenceEqual(
             getattr(rule.block, "content", []),
             [
-                styler.Colon(67),
-                styler.Ident(68, "root"),
+                styler.Colon(),
+                styler.Ident("root"),
                 styler.BlockAst(
-                    styler.OpenCurlyBracket(73),
+                    styler.OpenCurlyBracket(),
                     [
-                        styler.Ident(95, "scroll-behavior"),
-                        styler.Colon(110),
-                        styler.Ident(112, "smooth"),
-                        styler.Semicolon(118),
+                        styler.Ident("scroll-behavior"),
+                        styler.Colon(),
+                        styler.Ident("smooth"),
+                        styler.Semicolon(),
                     ],
                 ),
             ],
@@ -686,14 +686,14 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             rule,
             styler.QualifiedRuleAst(
-                prelude=[styler.Ident(0, "div")],
+                prelude=[styler.Ident("div")],
                 block=styler.BlockAst(
-                    block=styler.OpenCurlyBracket(3),
+                    block=styler.OpenCurlyBracket(),
                     content=[
-                        styler.Ident(5, "border-width"),
-                        styler.Colon(17),
-                        styler.Dimension(19, 10, styler.NumericType.INTEGER, "px"),
-                        styler.Semicolon(23),
+                        styler.Ident("border-width"),
+                        styler.Colon(),
+                        styler.Dimension(10, styler.NumericType.INTEGER, "px"),
+                        styler.Semicolon(),
                     ],
                 ),
             ),
@@ -706,14 +706,14 @@ class ParserTestCase(unittest.TestCase):
         rule = parser.parse_rule()
         self.assertIsInstance(rule, styler.QualifiedRuleAst)
         assert isinstance(rule, styler.QualifiedRuleAst)
-        self.assertSequenceEqual(rule.prelude, [styler.Ident(0, "div")])
+        self.assertSequenceEqual(rule.prelude, [styler.Ident("div")])
 
     def test_parse_rule_list(self):
         tokens = styler.Tokenizer.from_str("div{} @media;")
         parser = styler.Parser(tokens)
 
         rule_list = parser.parse_rule_list()
-        self.assertEqual(rule_list[0].prelude, [styler.Ident(0, "div")])
+        self.assertEqual(rule_list[0].prelude, [styler.Ident("div")])
 
         self.assertEqual(rule_list[1].prelude, [])
         self.assertEqual(rule_list[1].block, None)
@@ -727,8 +727,8 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             rule_list[0],
             styler.QualifiedRuleAst(
-                [styler.CDO(0), styler.Ident(4, "div")],
-                styler.BlockAst(styler.OpenCurlyBracket(7), []),
+                [styler.CDO(), styler.Ident("div")],
+                styler.BlockAst(styler.OpenCurlyBracket(), []),
             ),
         )
 
@@ -739,8 +739,8 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             rule_list[0],
             styler.QualifiedRuleAst(
-                [styler.CDO(0), styler.Ident(5, "div"), styler.CDC(9)],
-                styler.BlockAst(styler.OpenCurlyBracket(12), []),
+                [styler.CDO(), styler.Ident("div"), styler.CDC()],
+                styler.BlockAst(styler.OpenCurlyBracket(), []),
             ),
         )
 
@@ -763,9 +763,9 @@ class ParserTestCase(unittest.TestCase):
             styler.FunctionAst(
                 "calc",
                 [
-                    styler.Dimension(5, 10, styler.NumericType.INTEGER, "px"),
-                    styler.Delim(10, "+"),
-                    styler.Dimension(12, 10, styler.NumericType.INTEGER, "em"),
+                    styler.Dimension(10, styler.NumericType.INTEGER, "px"),
+                    styler.Delim("+"),
+                    styler.Dimension(10, styler.NumericType.INTEGER, "em"),
                 ],
             ),
         )
@@ -781,12 +781,12 @@ class ParserTestCase(unittest.TestCase):
                 styler.FunctionAst(
                     "calc",
                     [
-                        styler.Dimension(5, 10, styler.NumericType.INTEGER, "px"),
-                        styler.Delim(10, "+"),
-                        styler.Dimension(12, 10, styler.NumericType.INTEGER, "em"),
+                        styler.Dimension(10, styler.NumericType.INTEGER, "px"),
+                        styler.Delim("+"),
+                        styler.Dimension(10, styler.NumericType.INTEGER, "em"),
                     ],
                 ),
-                styler.Ident(18, "test"),
+                styler.Ident("test"),
             ],
         )
 
@@ -802,14 +802,14 @@ class ParserTestCase(unittest.TestCase):
                     styler.FunctionAst(
                         "calc",
                         [
-                            styler.Dimension(5, 10, styler.NumericType.INTEGER, "px"),
-                            styler.Delim(10, "+"),
-                            styler.Dimension(12, 10, styler.NumericType.INTEGER, "em"),
+                            styler.Dimension(10, styler.NumericType.INTEGER, "px"),
+                            styler.Delim("+"),
+                            styler.Dimension(10, styler.NumericType.INTEGER, "em"),
                         ],
                     ),
-                    styler.Ident(18, "test"),
+                    styler.Ident("test"),
                 ],
-                [styler.Ident(24, "div")],
+                [styler.Ident("div")],
             ],
         )
 
@@ -831,7 +831,7 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             decl,
             styler.DeclarationAst(
-                "border", [styler.Dimension(8, 10, styler.NumericType.INTEGER, "px")]
+                "border", [styler.Dimension(10, styler.NumericType.INTEGER, "px")]
             ),
         )
 
@@ -846,7 +846,7 @@ class ParserTestCase(unittest.TestCase):
             decl,
             styler.DeclarationAst(
                 "background-color",
-                [styler.Ident(18, "red")],
+                [styler.Ident("red")],
                 True,
             ),
         )
@@ -863,11 +863,9 @@ class ParserTestCase(unittest.TestCase):
             [
                 styler.DeclarationAst(
                     "border",
-                    [styler.Dimension(8, 10, styler.NumericType.INTEGER, "px")],
+                    [styler.Dimension(10, styler.NumericType.INTEGER, "px")],
                 ),
-                styler.DeclarationAst(
-                    "background-color", [styler.Ident(32, "red")], True
-                ),
+                styler.DeclarationAst("background-color", [styler.Ident("red")], True),
             ],
         )
 
@@ -881,9 +879,7 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             decl_list,
             [
-                styler.DeclarationAst(
-                    "background-color", [styler.Ident(33, "red")], True
-                ),
+                styler.DeclarationAst("background-color", [styler.Ident("red")], True),
             ],
         )
 
@@ -897,9 +893,7 @@ class ParserTestCase(unittest.TestCase):
         self.assertEqual(
             decl_list,
             [
-                styler.DeclarationAst(
-                    "background-color", [styler.Ident(31, "red")], True
-                ),
+                styler.DeclarationAst("background-color", [styler.Ident("red")], True),
             ],
         )
 
@@ -915,20 +909,20 @@ class ParserTestCase(unittest.TestCase):
             [
                 styler.DeclarationAst(
                     "border",
-                    [styler.Dimension(8, 10, styler.NumericType.INTEGER, "px")],
+                    [styler.Dimension(10, styler.NumericType.INTEGER, "px")],
                 ),
                 styler.AtRuleAst(
                     "media",
-                    [styler.Ident(21, "screen")],
+                    [styler.Ident("screen")],
                     styler.BlockAst(
-                        styler.OpenCurlyBracket(28),
+                        styler.OpenCurlyBracket(),
                         [
-                            styler.Ident(29, "background-color"),
-                            styler.Colon(45),
-                            styler.Ident(47, "red"),
-                            styler.Delim(51, "!"),
-                            styler.Ident(52, "important"),
-                            styler.Semicolon(61),
+                            styler.Ident("background-color"),
+                            styler.Colon(),
+                            styler.Ident("red"),
+                            styler.Delim("!"),
+                            styler.Ident("important"),
+                            styler.Semicolon(),
                         ],
                     ),
                 ),
@@ -947,28 +941,28 @@ class ParserTestCase(unittest.TestCase):
             styler.StyleSheetAst(
                 [
                     styler.QualifiedRuleAst(
-                        [styler.Ident(0, "div")],
+                        [styler.Ident("div")],
                         styler.BlockAst(
-                            styler.OpenCurlyBracket(4),
+                            styler.OpenCurlyBracket(),
                             [
-                                styler.Ident(5, "background-color"),
-                                styler.Colon(21),
-                                styler.Ident(23, "red"),
-                                styler.Delim(27, "!"),
-                                styler.Ident(28, "important"),
-                                styler.Semicolon(37),
+                                styler.Ident("background-color"),
+                                styler.Colon(),
+                                styler.Ident("red"),
+                                styler.Delim("!"),
+                                styler.Ident("important"),
+                                styler.Semicolon(),
                             ],
                         ),
                     ),
                     styler.QualifiedRuleAst(
-                        [styler.Ident(40, "span")],
+                        [styler.Ident("span")],
                         styler.BlockAst(
-                            styler.OpenCurlyBracket(45),
+                            styler.OpenCurlyBracket(),
                             [
-                                styler.Ident(46, "color"),
-                                styler.Colon(51),
-                                styler.Hash(53, "123456"),
-                                styler.Semicolon(60),
+                                styler.Ident("color"),
+                                styler.Colon(),
+                                styler.Hash("123456"),
+                                styler.Semicolon(),
                             ],
                         ),
                     ),

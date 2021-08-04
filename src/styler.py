@@ -10,7 +10,6 @@ import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from itertools import dropwhile, tee
 from typing import (
     IO,
     BinaryIO,
@@ -239,7 +238,7 @@ def decode(
 # Ref: https://www.w3.org/TR/css-syntax-3/#tokenization
 @dataclass(frozen=True)
 class Token:
-    position: int
+    pass
 
 
 class EOF(Token):
@@ -268,55 +267,44 @@ class CDC(Token):
     pass
 
 
-class BlockToken(Token):
-    pass
-
-
-class OpenBlockToken(BlockToken):
+class BlockToken(Token, ABC):
     @property
     @abstractmethod
-    def matching(self) -> Type["CloseBlockToken"]:
+    def matching(self) -> Type["BlockToken"]:
         ...
 
 
-class CloseBlockToken(BlockToken):
-    @property
-    @abstractmethod
-    def matching(self) -> Type["OpenBlockToken"]:
-        ...
-
-
-class OpenParenthesis(OpenBlockToken):
+class OpenParenthesis(BlockToken):
     @property
     def matching(self):
         return CloseParenthesis
 
 
-class CloseParenthesis(CloseBlockToken):
+class CloseParenthesis(BlockToken):
     @property
     def matching(self):
         return OpenParenthesis
 
 
-class OpenCurlyBracket(OpenBlockToken):
+class OpenCurlyBracket(BlockToken):
     @property
     def matching(self):
         return CloseCurlyBracket
 
 
-class CloseCurlyBracket(CloseBlockToken):
+class CloseCurlyBracket(BlockToken):
     @property
     def matching(self):
         return OpenCurlyBracket
 
 
-class OpenBracket(OpenBlockToken):
+class OpenBracket(BlockToken):
     @property
     def matching(self):
         return CloseBracket
 
 
-class CloseBracket(CloseBlockToken):
+class CloseBracket(BlockToken):
     @property
     def matching(self):
         return OpenBracket
@@ -479,7 +467,7 @@ class Tokenizer:
         pos = self.pos
         if c == "":
             # Empty, so EOF
-            return EOF(pos)
+            return EOF()
         elif c == "/":
             if self.peek(2) == "/*":
                 return self.consume_comment()
@@ -501,22 +489,22 @@ class Tokenizer:
             return self.consume_string()
         elif c == "(":
             self.advance(1)
-            return OpenParenthesis(pos)
+            return OpenParenthesis()
         elif c == ")":
             self.advance(1)
-            return CloseParenthesis(pos)
+            return CloseParenthesis()
         elif c == "+":
             if self.at_number_start():
                 return self.consume_numeric()
         elif c == ",":
             self.advance(1)
-            return Comma(pos)
+            return Comma()
         elif c == "-":
             if self.at_number_start():
                 return self.consume_numeric()
             if self.peek(3) == "-->":
                 self.advance(3)
-                return CDC(pos)
+                return CDC()
             if self.at_ident_start():
                 return self.consume_ident_like()
         elif c == ".":
@@ -524,14 +512,14 @@ class Tokenizer:
                 return self.consume_numeric()
         elif c == ":":
             self.advance(1)
-            return Colon(pos)
+            return Colon()
         elif c == ";":
             self.advance(1)
-            return Semicolon(pos)
+            return Semicolon()
         elif c == "<":
             if self.peek(4) == "<!--":
                 self.advance(4)
-                return CDO(pos)
+                return CDO()
         elif c == "@":
             with self.memo():
                 self.advance(1)
@@ -539,30 +527,30 @@ class Tokenizer:
             if is_ident:
                 self.advance(1)
                 name = self.consume_name()
-                return AtKeyword(pos, name)
+                return AtKeyword(name)
         elif c == "[":
             self.advance(1)
-            return OpenBracket(pos)
+            return OpenBracket()
         elif c == "\\":
             if self.at_escape():
                 return self.consume_ident_like()
             self.errors.append("Invalid escape.")
         elif c == "]":
             self.advance(1)
-            return CloseBracket(pos)
+            return CloseBracket()
         elif c == "{":
             self.advance(1)
-            return OpenCurlyBracket(pos)
+            return OpenCurlyBracket()
         elif c == "}":
             self.advance(1)
-            return CloseCurlyBracket(pos)
+            return CloseCurlyBracket()
         elif c in string.digits:
             return self.consume_numeric()
         elif self.is_name_start(c):
             return self.consume_ident_like()
 
         # If not anything above, default to delim token
-        return Delim(pos, self.consume(1))
+        return Delim(self.consume(1))
 
     def at_escape(self) -> bool:
         peeked = self.peek(2)
@@ -658,7 +646,7 @@ class Tokenizer:
         else:
             self.errors.append("Comment did not close.")
 
-        return Comment(start, value)
+        return Comment(value)
 
     def consume_whitespace(self):
         # Ref: https://www.w3.org/TR/css-syntax-3/#whitespace
@@ -668,7 +656,7 @@ class Tokenizer:
         while not self.eof and self.is_whitespace(self.peek(1)):
             value += self.consume(1)
 
-        return Whitespace(start, value)
+        return Whitespace(value)
 
     def consume_string(self):
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-string-token
@@ -681,16 +669,16 @@ class Tokenizer:
                 value += self.consume_escape()
             elif self.peek(1) == "\n":
                 self.errors.append(f"String contains newline.")
-                return BadString(start)
+                return BadString()
             else:
                 value += self.consume(1)
 
         if self.eof or self.peek(1) != ending:
             self.errors.append(f"String not ended with matching `{ending}`.")
-            return String(start, value)
+            return String(value)
         else:
             self.advance(1)
-            return String(start, value)
+            return String(value)
 
     def consume_escape(self) -> str:
         assert self.consume(1) == "\\"
@@ -738,7 +726,7 @@ class Tokenizer:
         start = self.pos
         assert self.consume(1) == "#"
 
-        return Hash(start, self.consume_name(), hash_type)
+        return Hash(self.consume_name(), hash_type)
 
     def consume_number(self) -> Tuple[Union[int, float], NumericType]:
         n_type = NumericType.INTEGER
@@ -803,13 +791,13 @@ class Tokenizer:
 
         if self.at_ident_start():
             unit = self.consume_name()
-            return Dimension(start, value, n_type, unit)
+            return Dimension(value, n_type, unit)
 
         if self.peek(1) == "%":
             self.advance(1)
-            return Percentage(start, value)
+            return Percentage(value)
 
-        return Number(start, value, n_type)
+        return Number(value, n_type)
 
     def consume_ident_like(self):
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-an-ident-like-token
@@ -822,15 +810,15 @@ class Tokenizer:
                 self.advance(1)
             chrs = self.peek(2)
             if any(c in "\"'" for c in chrs):
-                return Function(pos, name)
+                return Function(name)
             else:
                 return self.consume_url(pos)
 
         elif self.peek(1) == "(":
             self.advance(1)
-            return Function(pos, name)
+            return Function(name)
         else:
-            return Ident(pos, name)
+            return Ident(name)
 
     def consume_bad_url_remnants(self):
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url
@@ -860,12 +848,12 @@ class Tokenizer:
                 else:
                     self.errors.append("Invalid escape while parsing Url")
                     self.consume_bad_url_remnants()
-                    return BadUrl(pos)
+                    return BadUrl()
 
             c = self.consume(1)
 
             if c == ")":
-                return Url(pos, value)
+                return Url(value)
             elif self.is_whitespace(c):
                 # Whitespace is not allowed whithin a url, so parse the rest untill ')'
                 while not self.eof and self.is_whitespace(self.peek(1)):
@@ -873,24 +861,24 @@ class Tokenizer:
 
                 if self.eof:
                     self.errors.append("Unexpected EOF while parsing Url.")
-                    return Url(pos, value)
+                    return Url(value)
                 elif self.peek(1) == ")":
                     self.advance(1)
-                    return Url(pos, value)
+                    return Url(value)
 
                 self.consume_bad_url_remnants()
-                return BadUrl(pos)
+                return BadUrl()
 
             elif c in "\"'(" or self.is_non_printable(c):
                 self.errors.append(f"Url contains invalid character: {c}.")
                 self.consume_bad_url_remnants()
-                return BadUrl(pos)
+                return BadUrl()
             else:
                 # Append valid character to url
                 value += c
 
         self.errors.append("Unexpected EOF while parsing Url.")
-        return Url(pos, value)
+        return Url(value)
 
 
 # region ast
@@ -1198,7 +1186,7 @@ class Parser:
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-component-value
         token = next(self.tokens)
 
-        if isinstance(token, OpenBlockToken):
+        if isinstance(token, BlockToken):
             return self.consume_simple_block(token)
         elif isinstance(token, Function):
             self.tokens.reconsume()
@@ -1206,7 +1194,7 @@ class Parser:
         else:
             return token
 
-    def consume_simple_block(self, block_open: OpenBlockToken):
+    def consume_simple_block(self, block_open: BlockToken):
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-simple-block
         MatchingType = block_open.matching
         content = []
