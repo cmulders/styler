@@ -1,46 +1,101 @@
-from contextlib import contextmanager
 import codecs
+import copy
 import enum
+import io
+import itertools
+import logging
 import re
+import string
+import warnings
+from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from itertools import dropwhile, tee
 from typing import (
+    IO,
     BinaryIO,
     Callable,
     Iterable,
+    Iterator,
     List,
-    TextIO,
+    Optional,
+    Tuple,
+    Type,
     TypeVar,
     Union,
     cast,
-    Tuple,
-    Optional,
 )
-import codecs
-
-import io
-import string
 
 # CSS Syntax Module Level 3
 # Ref: https://www.w3.org/TR/css-syntax-3/
 
-import logging
-from unittest.loader import TestLoader
-from itertools import tee, takewhile
-from dataclasses import dataclass
 
 logger = logging.getLogger()
 
 # logging.basicConfig(level=logging.NOTSET)
 
+TValue = TypeVar("TValue")
+
+
+class NoDefault(enum.Enum):
+    # We make this an Enum
+    # 1) because it round-trips through pickle correctly (see GH#40397)
+    # 2) because mypy does not understand singletons
+    no_default = "NO_DEFAULT"
+
+
+class PeekableIterable(Iterable[TValue]):
+    """Wraps an iterator to make it peekable
+
+    Uses itertools.tee() internally.
+
+    """
+
+    def __init__(self, it: Iterable[TValue]) -> None:
+        # Make a tee-wrapped Iterator
+        self.parent_it = itertools.tee(it, 1)[0]
+
+        # Variables for reconsumption
+        self._last: Union[TValue, NoDefault] = NoDefault.no_default
+        self._reconsume: Union[TValue, NoDefault] = NoDefault.no_default
+
+    def peek(self, items: int = 1) -> Optional[Union[TValue, Tuple[TValue, ...]]]:
+        if items <= 0:
+            raise ValueError("Number of items should be a positive integer.")
+
+        peeked = self.peek_slice(slice(None, items))
+
+        if items == 1:
+            return next(peeked, None)
+        else:
+            return tuple(peeked)
+
+    def peek_slice(self, s: slice) -> Iterator[TValue]:
+        assert isinstance(s, slice), "Slice required."
+
+        # We make a copy of the tee-wrapped iterator
+        child_it = copy.copy(self.parent_it)
+        return itertools.islice(child_it, s.start, s.stop, s.step)
+
+    def reconsume(self):
+        self._reconsume = self._last
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> TValue:
+        if self._reconsume is not NoDefault.no_default:
+            value = self._reconsume
+        else:
+            value = next(self.parent_it)
+
+        self._last = value
+        self._reconsume = NoDefault.no_default
+        return value
+
 
 class ParseError(Exception):
     pass
-
-
-def pairwise(iterable):
-    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
-    a, b = tee(iterable)
-    next(b, None)
-    return zip(a, b)
 
 
 def peek_buffered(buffer: Union[io.BufferedReader, io.BufferedIOBase], size: int):
@@ -97,7 +152,7 @@ def detect_charset(sample: bytes) -> Optional[codecs.CodecInfo]:
     try:
         codec_info = codecs.lookup(encoding)
     except LookupError:
-        logger.warning(f"Ignored @charset encoding, invalid encoding: {encoding}.")
+        warnings.warn(f"Ignored @charset encoding, invalid encoding: {encoding}.")
         # Could not detect specified encoding in the @charset
         return None
 
@@ -109,7 +164,7 @@ def detect_charset(sample: bytes) -> Optional[codecs.CodecInfo]:
 
 
 def decode(
-    stream: Union[io.RawIOBase, io.BufferedIOBase, io.TextIOBase],
+    stream: Union[io.RawIOBase, io.BufferedIOBase, io.TextIOBase, IO],
     protocol_encoding=None,
     environment_encoding=None,
 ) -> io.TextIOBase:
@@ -131,8 +186,10 @@ def decode(
     buffered: Union[io.BufferedReader, io.BufferedIOBase]
     if isinstance(stream, io.RawIOBase):
         buffered = io.BufferedReader(stream)
-    else:
+    elif isinstance(stream, (io.BufferedReader, io.BufferedIOBase)):
         buffered = stream
+    else:
+        raise ValueError(f"Unexpected steam: {stream!r}")
 
     # 1. BOM marker
     codec_info = detect_bom(buffered)
@@ -142,7 +199,7 @@ def decode(
         try:
             codec_info = codecs.lookup(protocol_encoding)
         except LookupError:
-            logger.warning(
+            warnings.warn(
                 f"Ignored protocol encoding, invalid encoding: {protocol_encoding}."
             )
             pass
@@ -157,7 +214,7 @@ def decode(
         try:
             codec_info = codecs.lookup(environment_encoding)
         except LookupError:
-            logger.warning(
+            warnings.warn(
                 f"Ignored environment encoding, invalid encoding: {environment_encoding}."
             )
             pass
@@ -176,6 +233,8 @@ def decode(
         cast(BinaryIO, buffered), encoding=codec_info.name, errors="replace"
     )
 
+
+# region tokens
 
 # Ref: https://www.w3.org/TR/css-syntax-3/#tokenization
 @dataclass(frozen=True)
@@ -209,28 +268,58 @@ class CDC(Token):
     pass
 
 
-class OpenParenthesis(Token):
+class BlockToken(Token):
     pass
 
 
-class CloseParenthesis(Token):
-    pass
+class OpenBlockToken(BlockToken):
+    @property
+    @abstractmethod
+    def matching(self) -> Type["CloseBlockToken"]:
+        ...
 
 
-class OpenCurlyBracket(Token):
-    pass
+class CloseBlockToken(BlockToken):
+    @property
+    @abstractmethod
+    def matching(self) -> Type["OpenBlockToken"]:
+        ...
 
 
-class CloseCurlyBracket(Token):
-    pass
+class OpenParenthesis(OpenBlockToken):
+    @property
+    def matching(self):
+        return CloseParenthesis
 
 
-class OpenBracket(Token):
-    pass
+class CloseParenthesis(CloseBlockToken):
+    @property
+    def matching(self):
+        return OpenParenthesis
 
 
-class CloseBracket(Token):
-    pass
+class OpenCurlyBracket(OpenBlockToken):
+    @property
+    def matching(self):
+        return CloseCurlyBracket
+
+
+class CloseCurlyBracket(CloseBlockToken):
+    @property
+    def matching(self):
+        return OpenCurlyBracket
+
+
+class OpenBracket(OpenBlockToken):
+    @property
+    def matching(self):
+        return CloseBracket
+
+
+class CloseBracket(CloseBlockToken):
+    @property
+    def matching(self):
+        return OpenBracket
 
 
 @dataclass(frozen=True)
@@ -238,11 +327,11 @@ class ValueToken(Token):
     value: str
 
 
-class Comment(ValueToken):
+class Whitespace(ValueToken):
     pass
 
 
-class Whitespace(ValueToken):
+class Comment(Whitespace):
     pass
 
 
@@ -309,6 +398,8 @@ class Dimension(Number):
     dimension: str
 
 
+# endregion
+
 # Ref: https://www.w3.org/TR/css-syntax-3/#whitespace
 WHITESPACE = string.whitespace
 
@@ -338,9 +429,9 @@ class Tokenizer:
     def from_reader(cls, reader: io.TextIOBase):
         return cls(reader.read())
 
-    @property
-    def remaining(self):
-        return len(self.content) - self.pos
+    @classmethod
+    def from_str(cls, content: str):
+        return cls(content)
 
     @contextmanager
     def memo(self):
@@ -349,10 +440,6 @@ class Tokenizer:
             yield
         finally:
             self.pos = pos
-
-    def with_memo(self, fn: Callable[["Tokenizer"], T]) -> T:
-        with self.memo():
-            return fn(self)
 
     def peek(self, n: int = 1) -> str:
         # Returns the next N characters without modifying the position
@@ -369,14 +456,6 @@ class Tokenizer:
         end = self.advance(n)
         return self.content[start:end]
 
-    def consume_all(self) -> str:
-        start = self.pos
-        self.pos = len(self.content)  # Set to end
-        return self.content[start:]
-
-    def content_iter(self) -> Iterable[str]:
-        return iter(self.content[self.pos :])
-
     @property
     def eof(self) -> bool:
         return self.pos >= len(self.content)
@@ -388,21 +467,20 @@ class Tokenizer:
         if self.exhausted:
             raise StopIteration
 
-        if self.eof:
-            self.exhausted = True
-            return EOF(self.pos)
-
         token = self.next_token()
-        if token is not None:
-            return token
+        if isinstance(token, EOF):
+            self.exhausted = True
 
-        raise StopIteration
+        return token
 
-    def next_token(self) -> Optional[Token]:
+    def next_token(self) -> Token:
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-token
         c = self.peek(1)
         pos = self.pos
-        if c == "/":
+        if c == "":
+            # Empty, so EOF
+            return EOF(pos)
+        elif c == "/":
             if self.peek(2) == "/*":
                 return self.consume_comment()
         elif c in WHITESPACE:
@@ -465,6 +543,10 @@ class Tokenizer:
         elif c == "[":
             self.advance(1)
             return OpenBracket(pos)
+        elif c == "\\":
+            if self.at_escape():
+                return self.consume_ident_like()
+            self.errors.append("Invalid escape.")
         elif c == "]":
             self.advance(1)
             return CloseBracket(pos)
@@ -523,37 +605,41 @@ class Tokenizer:
 
     def at_number_start(self) -> bool:
         # Ref: https://www.w3.org/TR/css-syntax-3/#check-if-three-code-points-would-start-a-number
-        if self.remaining < 2:
-            # We need at least 2 code points
-            return False
-
         c = self.peek(3)
 
         if c[0] in "+-":
-            if c[1] in string.digits:
+            if len(c) < 2:
+                return False
+            elif c[1] in string.digits:
                 return True
             elif c[1] == "." and len(c) == 3:
                 return c[2] in string.digits
 
             return False
         elif c[0] == ".":
-            return c[1] in string.digits
+            if len(c) < 2:
+                return False
+            else:
+                return c[1] in string.digits
 
-        return c[0] in string.digits
+        elif c[0] in string.digits:
+            return True
+
+        return False
 
     def at_ident_start(self) -> bool:
         # Ref: https://www.w3.org/TR/css-syntax-3/#would-start-an-identifier
-        if self.remaining < 2:
-            return False
-
         c = self.peek(3)
+
+        if len(c) < 2:
+            return False
 
         if c[0] == "-":
             c = c[1:]  # Shift the code points left
 
         if self.is_name_start(c[0]) or c[0] == "-":
             return True
-        elif len(c) >= 2 is not None and self.is_escape(c[:2]):
+        elif len(c) >= 2 and self.is_escape(c[:2]):
             return True
         else:
             return False
@@ -569,6 +655,8 @@ class Tokenizer:
 
         if self.peek(2) == "*/":
             self.advance(2)
+        else:
+            self.errors.append("Comment did not close.")
 
         return Comment(start, value)
 
@@ -592,12 +680,14 @@ class Tokenizer:
             if self.at_escape():
                 value += self.consume_escape()
             elif self.peek(1) == "\n":
+                self.errors.append(f"String contains newline.")
                 return BadString(start)
             else:
                 value += self.consume(1)
 
         if self.eof or self.peek(1) != ending:
-            return BadString(start)
+            self.errors.append(f"String not ended with matching `{ending}`.")
+            return String(start, value)
         else:
             self.advance(1)
             return String(start, value)
@@ -606,6 +696,7 @@ class Tokenizer:
         assert self.consume(1) == "\\"
 
         if self.eof:
+            self.errors.append(f"Unexpected EOF while parsing an escape.")
             return "\N{REPLACEMENT CHARACTER}"
 
         if self.peek(1) not in string.hexdigits:
@@ -727,7 +818,7 @@ class Tokenizer:
 
         if name.lower() == "url" and self.peek(1) == "(":
             self.advance(1)
-            while all(self.is_whitespace(c) for c in self.peek(2)):
+            while not self.eof and all(self.is_whitespace(c) for c in self.peek(2)):
                 self.advance(1)
             chrs = self.peek(2)
             if any(c in "\"'" for c in chrs):
@@ -758,6 +849,10 @@ class Tokenizer:
         # Ref: https://www.w3.org/TR/css-syntax-3/#consume-url-token
         assert pos is not None, "Must pass the start of the url(."
         value = ""
+
+        while not self.eof and self.is_whitespace(self.peek(1)):
+            self.advance(1)
+
         while not self.eof:
             if self.peek(1) == "\\":
                 if self.at_escape():
@@ -777,7 +872,7 @@ class Tokenizer:
                     self.advance(1)
 
                 if self.eof:
-                    self.errors.append("Unexpected EOF while parsing Url")
+                    self.errors.append("Unexpected EOF while parsing Url.")
                     return Url(pos, value)
                 elif self.peek(1) == ")":
                     self.advance(1)
@@ -787,11 +882,364 @@ class Tokenizer:
                 return BadUrl(pos)
 
             elif c in "\"'(" or self.is_non_printable(c):
+                self.errors.append(f"Url contains invalid character: {c}.")
                 self.consume_bad_url_remnants()
                 return BadUrl(pos)
             else:
                 # Append valid character to url
                 value += c
 
-        self.errors.append("Unexpected EOF while parsing Url")
-        return BadUrl(pos)
+        self.errors.append("Unexpected EOF while parsing Url.")
+        return Url(pos, value)
+
+
+# region ast
+@dataclass(frozen=True)
+class CssAst:
+    pass
+
+
+@dataclass(frozen=True)
+class BlockAst(CssAst):
+    block: BlockToken
+    content: List[Token]
+
+
+@dataclass(frozen=True)
+class FunctionAst(CssAst):
+    name: str
+    value: List[Token]
+
+
+@dataclass(frozen=True)
+class AtRuleAst(CssAst):
+    name: str
+    prelude: List[Union[BlockAst, FunctionAst, Token]] = field(default_factory=list)
+    block: Optional[BlockAst] = None
+
+
+@dataclass(frozen=True)
+class QualifiedRuleAst(CssAst):
+    prelude: List[Union[BlockAst, FunctionAst, Token]] = field(default_factory=list)
+    block: Optional[BlockAst] = None
+
+
+RuleAst = Union[AtRuleAst, QualifiedRuleAst]
+
+
+@dataclass(frozen=True)
+class DeclarationAst(CssAst):
+    name: str
+    value: List[Token]
+    important: bool = False
+
+
+@dataclass(frozen=True)
+class StyleSheetAst(CssAst):
+    rules: List[RuleAst]
+
+
+class ASTSyntaxError(Exception):
+    pass
+
+
+# endregion
+
+
+class Parser:
+    def __init__(self, token_stream: Iterable[Token], include_whitespace=False) -> None:
+        if not include_whitespace:
+            non_whitespace = lambda tok: not isinstance(tok, Whitespace)
+            token_stream = filter(non_whitespace, token_stream)
+
+        self.tokens = PeekableIterable(token_stream)
+
+        self.errors: List[str] = []
+
+    def skip_whitespace(self):
+        while isinstance(self.tokens.peek(), Whitespace):
+            next(self.tokens)
+
+    def parse_css_grammar(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-grammar
+        raise NotImplementedError
+
+    def parse_stylesheet(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-stylesheet
+        return StyleSheetAst(self.consume_rule_list(top_level=True))
+
+    def parse_rule_list(self) -> List[RuleAst]:
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-list-of-rules
+        return self.consume_rule_list(top_level=False)
+
+    def parse_rule(self) -> RuleAst:
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-rule
+        self.skip_whitespace()
+        token = self.tokens.peek()
+        if isinstance(token, EOF):
+            raise ASTSyntaxError("Unexpected EOF.")
+
+        if isinstance(token, AtKeyword):
+            rule = self.consume_at_rule()
+        else:
+            rule = self.consume_qualified_rule()
+
+        self.skip_whitespace()
+        last = self.tokens.peek()
+        if not isinstance(last, EOF) and last is not None:
+            raise ASTSyntaxError(f"Expected EOF, but got {self.tokens.peek()!r}.")
+
+        return rule
+
+    def parse_declaration(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-declaration
+        self.skip_whitespace()
+
+        if not isinstance(self.tokens.peek(), Ident):
+            raise ASTSyntaxError(f"Expected Ident, but got {self.tokens.peek()!r}.")
+
+        return self.consume_declaration()
+
+    def parse_declaration_list(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-list-of-declarations
+        return self.consume_declaration_list()
+
+    def parse_component_value(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-component-value
+        self.skip_whitespace()
+        if isinstance(self.tokens.peek(), EOF):
+            raise ASTSyntaxError(f"Unexpected EOF.")
+
+        cpv = self.consume_component_value()
+
+        self.skip_whitespace()
+        last = self.tokens.peek()
+        if not isinstance(last, EOF) and last is not None:
+            raise ASTSyntaxError(f"Expected EOF, but got {self.tokens.peek()!r}.")
+
+        return cpv
+
+    def parse_component_value_list(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#parse-list-of-component-values
+        cpv_list = []
+        for token in self.tokens:
+            if isinstance(token, EOF):
+                continue
+            self.tokens.reconsume()
+            cpv = self.consume_component_value()
+            cpv_list.append(cpv)
+
+        return cpv_list
+
+    def parse_component_value_list_comma_separated(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/parse-comma-separated-list-of-component-values
+        cvls = []
+        cvl_current = []
+        for token in self.tokens:
+            if isinstance(token, EOF):
+                continue
+
+            elif isinstance(token, Comma):
+                cvls.append(cvl_current)
+                cvl_current = []
+            else:
+                self.tokens.reconsume()
+                cpv = self.consume_component_value()
+                cvl_current.append(cpv)
+
+        if cvl_current:
+            cvls.append(cvl_current)
+        return cvls
+
+    def consume_rule_list(self, top_level: bool):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules
+        rule_list: List[RuleAst] = []
+
+        for token in self.tokens:
+            if isinstance(token, Whitespace):
+                continue
+
+            elif isinstance(token, EOF):
+                break
+
+            elif isinstance(token, (CDO, CDC)):
+                if top_level:
+                    continue
+                self.tokens.reconsume()
+                rule = self.consume_qualified_rule()
+                if rule:
+                    rule_list.append(rule)
+
+            elif isinstance(token, AtKeyword):
+                self.tokens.reconsume()
+                rule = self.consume_at_rule()
+                if rule:
+                    rule_list.append(rule)
+
+            else:
+                self.tokens.reconsume()
+                rule = self.consume_qualified_rule()
+                if rule:
+                    rule_list.append(rule)
+
+        return rule_list
+
+    def consume_at_rule(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-at-rule
+        name = next(self.tokens)
+        assert isinstance(name, AtKeyword)
+        prelude = []
+        block = None
+
+        for token in self.tokens:
+            if isinstance(token, EOF):
+                self.errors.append("Unexpected EOF while consuming a at-rule.")
+                break
+            elif isinstance(token, Semicolon):
+                break
+            elif isinstance(token, OpenCurlyBracket):
+                block = self.consume_simple_block(token)
+                break
+            else:
+                self.tokens.reconsume()
+                prelude.append(self.consume_component_value())
+
+        return AtRuleAst(
+            name.value,  # Should be a name
+            prelude,
+            block,
+        )
+
+    def consume_qualified_rule(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-qualified-rule
+        prelude = []
+        block = None
+        for token in self.tokens:
+            if isinstance(token, EOF):
+                self.errors.append("Unexpected EOF while consuming a qualified rule.")
+                break
+            elif isinstance(token, OpenCurlyBracket):
+                block = self.consume_simple_block(token)
+                break
+            else:
+                self.tokens.reconsume()
+                prelude.append(self.consume_component_value())
+
+        return QualifiedRuleAst(prelude, block)
+
+    def consume_declaration_list(self) -> List[Union[DeclarationAst, AtRuleAst]]:
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-list-of-declarations
+        decl_list = []
+
+        for token in self.tokens:
+            if isinstance(token, (Whitespace, Semicolon)):
+                continue
+            elif isinstance(token, EOF):
+                break
+            elif isinstance(token, AtKeyword):
+                self.tokens.reconsume()
+                decl_list.append(self.consume_at_rule())
+            elif isinstance(token, Ident):
+                temp_tokens: List[Token] = [token]
+                while not isinstance(self.tokens.peek(), (EOF, Semicolon)):
+                    temp_tokens.append(next(self.tokens))
+                temp_parser = type(self)(temp_tokens)
+                decl = temp_parser.consume_declaration()
+                if decl:
+                    decl_list.append(decl)
+                self.errors.extend(temp_parser.errors)
+            else:
+                # Invalid declaration, consume until next.
+                self.errors.append(f"Invalid declaration.")
+                while not isinstance(self.tokens.peek(), (EOF, Semicolon)):
+                    # Throw away value
+                    _ = self.consume_component_value()
+
+        return decl_list
+
+    def consume_declaration(self) -> Optional[DeclarationAst]:
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-declaration
+        name = next(self.tokens)
+        assert isinstance(name, Ident)
+        value = []
+        important = False
+
+        self.skip_whitespace()
+
+        if not isinstance(self.tokens.peek(), Colon):
+            self.errors.append(f"Expected a colon, got {self.tokens.peek()!r}.")
+            return None
+        # Consume the Colon
+        next(self.tokens)
+
+        self.skip_whitespace()
+
+        for token in self.tokens:
+            if isinstance(token, EOF):
+                break
+            self.tokens.reconsume()
+            value.append(self.consume_component_value())
+
+        if len(value) >= 2:
+            prev2, prev1 = value[-2:]
+            is_exclamation = isinstance(prev2, Delim) and prev2.value == "!"
+            is_important = (
+                isinstance(prev1, Ident) and prev1.value.lower() == "important"
+            )
+            if is_exclamation and is_important:
+                important = True
+                value = value[:-2]
+
+        self.skip_whitespace()
+
+        return DeclarationAst(name.value, value, important)
+
+    def consume_component_value(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-component-value
+        token = next(self.tokens)
+
+        if isinstance(token, OpenBlockToken):
+            return self.consume_simple_block(token)
+        elif isinstance(token, Function):
+            self.tokens.reconsume()
+            return self.consume_function()
+        else:
+            return token
+
+    def consume_simple_block(self, block_open: OpenBlockToken):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-simple-block
+        MatchingType = block_open.matching
+        content = []
+        for token in self.tokens:
+            if isinstance(token, Whitespace):
+                continue
+            elif isinstance(token, EOF):
+                self.errors.append("Unexpected EOF while consuming a block.")
+                break
+            elif isinstance(token, MatchingType):
+                break
+            else:
+                self.tokens.reconsume()
+                content.append(self.consume_component_value())
+
+        return BlockAst(block_open, content)
+
+    def consume_function(self):
+        # Ref: https://www.w3.org/TR/css-syntax-3/#consume-function
+        fn_tok = next(self.tokens)
+        assert isinstance(fn_tok, Function)
+        value = []
+
+        for token in self.tokens:
+            if isinstance(token, CloseParenthesis):
+                break
+            elif isinstance(token, EOF):
+                self.errors.append("Unexpected EOF while consuming a function.")
+            else:
+                self.tokens.reconsume()
+                value.append(self.consume_component_value())
+
+        return FunctionAst(
+            fn_tok.value,
+            value,
+        )
